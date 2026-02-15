@@ -376,6 +376,14 @@ button, input, select, textarea {
   min-width: 760px;
 }
 
+pre {
+  margin: 0;
+}
+
+code, pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
 .table th, .table td {
   padding: 10px 12px;
   border-bottom: 1px solid rgba(17, 24, 39, 0.07);
