@@ -42,8 +42,33 @@ beforeAll(() => {
     if (shouldFilterReactRouterFutureWarning(args[0])) return;
     ORIGINAL_WARN(...args);
   };
+
+  /**
+   * CI/Jest requirement:
+   * - Tests must not perform real network requests (no real `/api` fetches).
+   *
+   * We provide a strict default fetch mock that throws unless a test explicitly
+   * mocks `global.fetch` for a given case.
+   */
+  if (typeof global.fetch !== "function") {
+    // In JSDOM, fetch may or may not exist depending on the Node/Jest environment.
+    // Provide one so code paths fail deterministically rather than "fetch is not defined".
+    global.fetch = () => {
+      throw new Error("Unexpected fetch call in Jest. Please mock global.fetch for this test.");
+    };
+  } else {
+    jest.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input?.url;
+      throw new Error(`Unexpected fetch call in Jest to: ${String(url)}. Please mock global.fetch for this test.`);
+    });
+  }
 });
 
 afterAll(() => {
   console.warn = ORIGINAL_WARN;
+
+  // Restore fetch mock (if we replaced it via jest.spyOn).
+  if (global.fetch && typeof global.fetch.mockRestore === "function") {
+    global.fetch.mockRestore();
+  }
 });

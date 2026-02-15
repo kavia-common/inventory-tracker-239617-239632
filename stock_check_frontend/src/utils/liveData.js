@@ -17,6 +17,15 @@
 /** Netlify Functions proxy base (same-origin). */
 const API_BASE = "/api";
 
+/**
+ * Required configuration for LIVE mode.
+ *
+ * Note: In this repo, LIVE fetches are done via Netlify Functions proxy (same-origin `/api/*`).
+ * The browser must never call Alpha Vantage directly, and in CI/Jest we must avoid real network
+ * calls entirely. Therefore we fail deterministically when required LIVE config is absent.
+ */
+const REQUIRED_LIVE_ENV_VARS = ["REACT_APP_ALPHAVANTAGE_API_KEY"];
+
 /** Default small universe: keep requests modest to avoid rate limits in demos. */
 const DEFAULT_LIVE_TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "NVDA", "JPM", "UNH", "XOM", "INTC"];
 
@@ -242,16 +251,39 @@ function buildNeutralFactorInputs() {
   };
 }
 
+function missingLiveEnvVars() {
+  // CRA inlines REACT_APP_* at build time; during Jest, `process.env` is still available.
+  return REQUIRED_LIVE_ENV_VARS.filter((k) => !String(process.env?.[k] || "").trim());
+}
+
+function liveNotConfiguredError(missingKeys) {
+  const err = new Error(
+    `LIVE mode not configured. Missing required env var(s): ${missingKeys.join(", ")}.`
+  );
+  err.code = "LIVE_NOT_CONFIGURED";
+  err.missing = missingKeys;
+  return err;
+}
+
 // PUBLIC_INTERFACE
 export async function fetchLiveUniverse({ config } = {}) {
   /** Fetch LIVE universe data using Alpha Vantage (via Netlify Functions proxy). */
+  // Deterministic guard: if required LIVE env vars are missing, fail immediately (no network calls).
+  const missing = missingLiveEnvVars();
+  if (missing.length) {
+    throw liveNotConfiguredError(missing);
+  }
+
   // For local dev without Netlify Functions, the proxy won't exist.
   // We intentionally fail fast (BRD "no hallucinated fallback").
   if (typeof window !== "undefined" && window.location?.protocol?.startsWith("http")) {
     // no-op; used only to keep context explicit.
   }
 
-  const tickers = Array.isArray(config?.live_tickers) && config.live_tickers.length ? config.live_tickers : DEFAULT_LIVE_TICKERS;
+  const tickers =
+    Array.isArray(config?.live_tickers) && config.live_tickers.length
+      ? config.live_tickers
+      : DEFAULT_LIVE_TICKERS;
 
   // Fetch sequentially to avoid slamming rate limits in typical demo environments.
   const rows = [];
