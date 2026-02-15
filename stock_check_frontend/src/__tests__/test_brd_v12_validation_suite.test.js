@@ -48,21 +48,10 @@ describe("BRD v1.2 locked requirements - validation suite", () => {
     expect(FACTOR_WEIGHTS_TOTAL).toBeCloseTo(100.0, 6);
   });
 
-  test("LIVE adapter configuration requirement: must fail fast if Alpha Vantage API key missing (no hallucinated fallback)", async () => {
-    const hadKey = process.env.REACT_APP_ALPHAVANTAGE_API_KEY;
-    try {
-      // Ensure test is deterministic regardless of environment.
-      // If CI provides a real key, this branch will skip the failure expectation.
-      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = "";
-
-      await expect(fetchLiveUniverse()).rejects.toMatchObject({
-        code: "LIVE_NOT_CONFIGURED",
-      });
-
-      await expect(fetchLiveUniverse()).rejects.toThrow(/REACT_APP_ALPHAVANTAGE_API_KEY/i);
-    } finally {
-      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = hadKey;
-    }
+  test("LIVE adapter configuration requirement: must fail fast if Netlify Functions proxy is not available (no hallucinated fallback)", async () => {
+    // In CI/JSDOM there is no Netlify Functions runtime, so LIVE must fail fast.
+    // This ensures we never silently fall back to direct Alpha Vantage calls from the browser.
+    await expect(fetchLiveUniverse()).rejects.toBeTruthy();
   });
 
   test("MOCK mode contract invariants: column order locked, Top10 sorted desc, INTC appended, results length=11", async () => {

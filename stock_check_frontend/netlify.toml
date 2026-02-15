@@ -1,0 +1,23 @@
+[build]
+  base = "stock_check_frontend"
+  publish = "build"
+  functions = "netlify/functions"
+  command = "npm run build"
+
+# Local dev (optional): netlify dev will proxy /api/* to functions automatically when functions directory is configured.
+[dev]
+  command = "npm start"
+  port = 3000
+  targetPort = 3000
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# SPA fallback so deep links work
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

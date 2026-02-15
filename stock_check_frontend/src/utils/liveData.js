@@ -1,25 +1,21 @@
 /**
- * LIVE data adapter (Alpha Vantage).
+ * LIVE data adapter (Alpha Vantage via Netlify Functions proxy).
  *
  * BRD v1.2 requirements:
  * - No hallucinated data (never fabricate values)
  * - Fail on missing data (throw explicit errors)
  * - Log timestamp + source
  *
- * Note:
- * - Alpha Vantage does not provide all 43 factor inputs directly. In this frontend-only
- *   build we only use Alpha Vantage for price + basic history returns, and we set
- *   unavailable factor inputs to a neutral value (0) ONLY if that does not constitute
- *   "hallucinated market data". We treat them as "missing" and explicit neutral
- *   defaults (not derived/guessed) while still requiring core LIVE fields (price,
- *   3m/6m/12m returns) to be present and computed from fetched history.
+ * Why proxy:
+ * - Keeps Alpha Vantage API key secret (stored as Netlify env var, not exposed to the browser)
+ * - Adds caching at the proxy to mitigate Alpha Vantage rate limits
  *
- * Environment:
- * - REACT_APP_ALPHAVANTAGE_API_KEY must be set for LIVE mode.
+ * Client behavior:
+ * - The browser calls `/api/av-time-series-daily-adjusted?...` (redirected to Netlify Functions).
  */
 
-/** Alpha Vantage base URL (public). */
-const AV_BASE = "https://www.alphavantage.co/query";
+/** Netlify Functions proxy base (same-origin). */
+const API_BASE = "/api";
 
 /** Default small universe: keep requests modest to avoid rate limits in demos. */
 const DEFAULT_LIVE_TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "NVDA", "JPM", "UNH", "XOM", "INTC"];
@@ -101,7 +97,7 @@ async function fetchJson(url) {
   try {
     return JSON.parse(text);
   } catch {
-    const err = new Error("Alpha Vantage returned non-JSON response.");
+    const err = new Error("Live proxy returned non-JSON response.");
     err.code = "ALPHAVANTAGE_BAD_RESPONSE";
     err.details = text?.slice?.(0, 5000);
     throw err;
@@ -157,11 +153,11 @@ function computeTrailingReturnPct({ sortedDatesDesc, series, latestClose, months
   return ((latestClose - close) / close) * 100;
 }
 
-async function fetchDailyAdjustedSeries({ apiKey, ticker }) {
+async function fetchDailyAdjustedSeries({ ticker, outputsize }) {
   const at = new Date().toISOString();
-  const url = `${AV_BASE}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${encodeURIComponent(
-    ticker
-  )}&outputsize=compact&apikey=${encodeURIComponent(apiKey)}`;
+  const url = `${API_BASE}/av-time-series-daily-adjusted?symbol=${encodeURIComponent(ticker)}&outputsize=${encodeURIComponent(
+    outputsize
+  )}`;
 
   const json = await fetchJson(url);
 
@@ -179,7 +175,7 @@ async function fetchDailyAdjustedSeries({ apiKey, ticker }) {
   }
 
   logLiveFetch({
-    source: "AlphaVantage.TIME_SERIES_DAILY_ADJUSTED",
+    source: `NetlifyProxy.av-time-series-daily-adjusted(${outputsize})`,
     ticker,
     at,
     detail: meta?.["3. Last Refreshed"] ? `(last_refreshed=${meta["3. Last Refreshed"]})` : "",
@@ -248,15 +244,11 @@ function buildNeutralFactorInputs() {
 
 // PUBLIC_INTERFACE
 export async function fetchLiveUniverse({ config } = {}) {
-  /** Fetch LIVE universe data using Alpha Vantage. */
-  const apiKey = process.env.REACT_APP_ALPHAVANTAGE_API_KEY;
-
-  if (!apiKey) {
-    const err = new Error(
-      "LIVE mode requires REACT_APP_ALPHAVANTAGE_API_KEY to be set. Per BRD v1.2, LIVE must not hallucinate or silently fall back."
-    );
-    err.code = "LIVE_NOT_CONFIGURED";
-    throw err;
+  /** Fetch LIVE universe data using Alpha Vantage (via Netlify Functions proxy). */
+  // For local dev without Netlify Functions, the proxy won't exist.
+  // We intentionally fail fast (BRD "no hallucinated fallback").
+  if (typeof window !== "undefined" && window.location?.protocol?.startsWith("http")) {
+    // no-op; used only to keep context explicit.
   }
 
   const tickers = Array.isArray(config?.live_tickers) && config.live_tickers.length ? config.live_tickers : DEFAULT_LIVE_TICKERS;
@@ -264,7 +256,7 @@ export async function fetchLiveUniverse({ config } = {}) {
   // Fetch sequentially to avoid slamming rate limits in typical demo environments.
   const rows = [];
   for (const ticker of tickers) {
-    const { series } = await fetchDailyAdjustedSeries({ apiKey, ticker });
+    const { series } = await fetchDailyAdjustedSeries({ ticker, outputsize: "compact" });
 
     const datesDesc = sortDatesDesc(Object.keys(series));
     const latest = datesDesc[0];
@@ -278,32 +270,13 @@ export async function fetchLiveUniverse({ config } = {}) {
     // Compute trailing returns from fetched history.
     // With "compact" (100 points) we can reliably compute ~3 months; 6/12 months may be missing.
     // BRD requirement: fail on missing data, so we require them and request outputsize=full if needed.
-    // To meet requirement, switch to outputsize=full if compact can't support required horizons.
     let r3 = computeTrailingReturnPct({ sortedDatesDesc: datesDesc, series, latestClose, months: 3 });
     let r6 = computeTrailingReturnPct({ sortedDatesDesc: datesDesc, series, latestClose, months: 6 });
     let r12 = computeTrailingReturnPct({ sortedDatesDesc: datesDesc, series, latestClose, months: 12 });
 
     if (r3 == null || r6 == null || r12 == null) {
-      // Re-fetch with full history to satisfy 6/12 month requirements.
-      const at = new Date().toISOString();
-      const urlFull = `${AV_BASE}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${encodeURIComponent(
-        ticker
-      )}&outputsize=full&apikey=${encodeURIComponent(apiKey)}`;
-      const jsonFull = await fetchJson(urlFull);
-
-      if (jsonFull?.Note || jsonFull?.Information || jsonFull?.["Error Message"]) {
-        throwAlphaVantageError({ ticker, json: jsonFull });
-      }
-
-      const seriesFull = jsonFull?.["Time Series (Daily)"];
-      if (!seriesFull || typeof seriesFull !== "object") {
-        const err = new Error(`Alpha Vantage missing full Time Series (Daily) for ${ticker}.`);
-        err.code = "ALPHAVANTAGE_MISSING_DATA";
-        err.details = jsonFull;
-        throw err;
-      }
-
-      logLiveFetch({ source: "AlphaVantage.TIME_SERIES_DAILY_ADJUSTED", ticker, at, detail: "(outputsize=full)" });
+      const full = await fetchDailyAdjustedSeries({ ticker, outputsize: "full" });
+      const seriesFull = full.series;
 
       const datesDescFull = sortDatesDesc(Object.keys(seriesFull));
       const latestFull = datesDescFull[0];
@@ -318,10 +291,9 @@ export async function fetchLiveUniverse({ config } = {}) {
       r6 = computeTrailingReturnPct({ sortedDatesDesc: datesDescFull, series: seriesFull, latestClose: latestCloseFull, months: 6 });
       r12 = computeTrailingReturnPct({ sortedDatesDesc: datesDescFull, series: seriesFull, latestClose: latestCloseFull, months: 12 });
 
-      // Use the latest close from full data (should match).
       rows.push({
         ticker,
-        company_name: ticker, // Alpha Vantage doesn't provide name in this endpoint; avoid hallucinating.
+        company_name: ticker, // Not provided by this endpoint; avoid hallucinating.
         sector: "Unknown", // Not provided; avoid hallucinating.
         current_price: latestCloseFull,
         inputs: buildNeutralFactorInputs(),

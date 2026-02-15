@@ -73,9 +73,40 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/m
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
 
-### Deployment
+### Deployment (Netlify + Alpha Vantage proxy)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+This project is configured to deploy to **Netlify** with **Netlify Functions** acting as a backend proxy for Alpha Vantage (so the API key stays secret).
+
+#### What was added
+
+- `netlify.toml` with:
+  - build config (`publish=build`, functions at `netlify/functions`)
+  - redirect: `/api/*` → `/.netlify/functions/:splat`
+  - SPA fallback redirect for React Router
+- Netlify Function:
+  - `/.netlify/functions/av-time-series-daily-adjusted`
+  - caching (in-memory per warm function instance) to reduce Alpha Vantage rate-limit pressure
+- Frontend LIVE mode now calls `/api/...` (same-origin) instead of calling Alpha Vantage directly.
+
+#### Required Netlify environment variables
+
+Configure these in **Netlify Site settings → Build & deploy → Environment**:
+
+- `ALPHA_VANTAGE_API_KEY` (required): your Alpha Vantage API key
+- `ALPHA_VANTAGE_CACHE_TTL_SECONDS` (optional): default cache TTL in seconds (function enforces minimums)
+
+#### Local development with Netlify Functions
+
+For LIVE mode to work locally, run with the Netlify CLI so `/api/*` routes resolve to functions:
+
+1. Install Netlify CLI (once):
+   - `npm i -g netlify-cli`
+2. From the repository root:
+   - `netlify dev`
+
+`netlify dev` will run the React dev server and mount functions locally.
+
+Note: If you run only `npm start`, LIVE mode will fail fast (per BRD: no hallucinated fallback).
 
 ### `npm run build` fails to minify
 
