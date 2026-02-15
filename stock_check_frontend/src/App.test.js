@@ -1,11 +1,13 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import App from "./App";
+import { AppRoutes } from "./App";
 import { renderWithRouter } from "./test-utils/renderWithRouter";
 
 test("renders Stock Check topbar and key navigation routes", async () => {
   const user = userEvent.setup();
-  renderWithRouter(<App />);
+
+  // AppRoutes is router-less; renderWithRouter provides the only Router (MemoryRouter).
+  renderWithRouter(<AppRoutes />);
 
   // Topbar brand
   expect(screen.getByText(/Stock Check/i)).toBeInTheDocument();

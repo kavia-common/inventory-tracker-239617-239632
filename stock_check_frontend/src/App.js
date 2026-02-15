@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes } from "react-router-dom";
 import "./App.css";
 import { ToastProvider, useToasts } from "./components/ui/Toasts";
 import { RunnerPage } from "./pages/RunnerPage";
@@ -56,7 +56,9 @@ function usePersistedState() {
   return [state, setState];
 }
 
-function AppInner() {
+// PUBLIC_INTERFACE
+export function AppRoutes() {
+  /** Router-less app UI shell: expects a Router to be provided by the caller (index.js or tests). */
   const { push } = useToasts();
   const [appState, setAppState] = usePersistedState();
   const [lastRun, setLastRun] = useState(appState.lastRun || null);
@@ -69,7 +71,10 @@ function AppInner() {
   const status = useMemo(() => {
     if (configIssues.length) return { ok: false, label: "Config issues" };
     if (!lastRun) return { ok: true, label: "Ready" };
-    return { ok: true, label: `Last run: ${new Date(lastRun.created_at).toLocaleString()}` };
+    return {
+      ok: true,
+      label: `Last run: ${new Date(lastRun.created_at).toLocaleString()}`,
+    };
   }, [configIssues.length, lastRun]);
 
   async function handleRun() {
@@ -140,7 +145,11 @@ function AppInner() {
                 {config.data_mode} • {status.ok ? "OK" : "Attention"}
               </span>
             </span>
-            <button className="btn btnPrimary" onClick={handleRun} disabled={running}>
+            <button
+              className="btn btnPrimary"
+              onClick={handleRun}
+              disabled={running}
+            >
               {running ? "Running..." : "Run Model"}
             </button>
           </div>
@@ -156,7 +165,11 @@ function AppInner() {
                 <RunnerPage
                   config={config}
                   onConfigChange={(nextConfig) =>
-                    setAppState((prev) => ({ ...prev, config: validateConfig(nextConfig).length ? nextConfig : nextConfig }))
+                    setAppState((prev) => ({
+                      ...prev,
+                      // Keep persisted config even if issues exist; issues are displayed in UI.
+                      config: nextConfig,
+                    }))
                   }
                   configIssues={configIssues}
                   onRun={handleRun}
@@ -167,7 +180,10 @@ function AppInner() {
             />
             <Route path="/output" element={<OutputPage lastRun={lastRun} />} />
             <Route path="/factors" element={<FactorsPage />} />
-            <Route path="/diagnostics" element={<DiagnosticsPage lastRun={lastRun} />} />
+            <Route
+              path="/diagnostics"
+              element={<DiagnosticsPage lastRun={lastRun} />}
+            />
           </Routes>
         </div>
       </main>
@@ -177,12 +193,10 @@ function AppInner() {
 
 // PUBLIC_INTERFACE
 export default function App() {
-  /** App root with providers and router. */
+  /** App root with global providers (router is provided by index.js / tests). */
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <AppInner />
-      </BrowserRouter>
+      <AppRoutes />
     </ToastProvider>
   );
 }
