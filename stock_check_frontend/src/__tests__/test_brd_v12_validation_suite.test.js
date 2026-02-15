@@ -48,12 +48,21 @@ describe("BRD v1.2 locked requirements - validation suite", () => {
     expect(FACTOR_WEIGHTS_TOTAL).toBeCloseTo(100.0, 6);
   });
 
-  test("LIVE data integrity / non-hallucination requirement: LIVE adapter must fail fast until integrated", async () => {
-    await expect(fetchLiveUniverse()).rejects.toMatchObject({
-      code: "LIVE_NOT_CONFIGURED",
-    });
+  test("LIVE adapter configuration requirement: must fail fast if Alpha Vantage API key missing (no hallucinated fallback)", async () => {
+    const hadKey = process.env.REACT_APP_ALPHAVANTAGE_API_KEY;
+    try {
+      // Ensure test is deterministic regardless of environment.
+      // If CI provides a real key, this branch will skip the failure expectation.
+      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = "";
 
-    await expect(fetchLiveUniverse()).rejects.toThrow(/must not hallucinate/i);
+      await expect(fetchLiveUniverse()).rejects.toMatchObject({
+        code: "LIVE_NOT_CONFIGURED",
+      });
+
+      await expect(fetchLiveUniverse()).rejects.toThrow(/REACT_APP_ALPHAVANTAGE_API_KEY/i);
+    } finally {
+      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = hadKey;
+    }
   });
 
   test("MOCK mode contract invariants: column order locked, Top10 sorted desc, INTC appended, results length=11", async () => {
@@ -135,13 +144,20 @@ describe("BRD v1.2 locked requirements - validation suite", () => {
     expect(run1.results).toEqual(run2.results);
   });
 
-  test("LIVE mode runModel must fail (no hallucinated live data) with LIVE_NOT_CONFIGURED", async () => {
-    await expect(
-      runModel({
-        config: { data_mode: "LIVE" },
-        current_date: "2026-01-01",
-        prediction_date: "2026-01-02",
-      })
-    ).rejects.toMatchObject({ code: "LIVE_NOT_CONFIGURED" });
+  test("LIVE mode runModel must fail with LIVE_NOT_CONFIGURED when API key is missing (no hallucinated live data)", async () => {
+    const hadKey = process.env.REACT_APP_ALPHAVANTAGE_API_KEY;
+    try {
+      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = "";
+
+      await expect(
+        runModel({
+          config: { data_mode: "LIVE" },
+          current_date: "2026-01-01",
+          prediction_date: "2026-01-02",
+        })
+      ).rejects.toMatchObject({ code: "LIVE_NOT_CONFIGURED" });
+    } finally {
+      process.env.REACT_APP_ALPHAVANTAGE_API_KEY = hadKey;
+    }
   });
 });
